@@ -1,0 +1,42 @@
+# values for PersistentVolume
+persistenceVolume:
+  capacity: 50Gi
+  server: moogstrg.file.core.windows.net
+  path: "/moogstrg/nfs" # The path of the nfs files share 
+
+# values for presistence volume claim
+persistenceVolumeClaim:
+  capacity: 10Gi
+
+# values for Secret
+secret:
+  data:
+    accountId: "mooginc-CYHI66"
+    envId: "5e79d84c-ae34-4afe-9fac-29269cd43892"
+    token: "molecule-7a71db36-cc58-47a9-a09b-50948d80766f"
+
+## Node labels for pod assignment. Evaluated as a template.
+nodeSelector: 
+  agentpool: application
+
+## Tolerations for pod assignment. Evaluated as a template.
+tolerations:
+- key: "agentpool"
+  operator: "Equal"
+  value: "restricted"
+  effect: "NoSchedule"
+
+## Pod anti affinity preset
+affinity:
+  enabled: true
+podAntiAffinity:
+  preferredDuringSchedulingIgnoredDuringExecution:
+  - weight: 1
+    podAffinityTerm:
+      labelSelector:
+        matchExpressions:
+        - key: statefulset.kubernetes.io/pod-name
+          operator: In
+          values:
+          - "boomi-0"
+      topologyKey: kubernetes.io/hostname

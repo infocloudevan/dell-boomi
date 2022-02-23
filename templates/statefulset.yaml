@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "boomi.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "boomi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: boomi
+    {{- if .Values.podLabels }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.podLabels "context" $) | nindent 8 }}
+    {{- end }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations:
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+    {{- if .Values.podAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+    {{- end }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "boomi.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "boomi.fullname" . }}-service
+  replicas: {{ .Values.statefulSet.template.spec.replicas }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/pod: boomi
+        {{- include "boomi.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }} 
+    spec:
+      {{- if .Values.affinity.enabled }}
+      affinity:
+        {{- if .Values.podAntiAffinity }}
+        podAntiAffinity: {{- .Values.podAntiAffinity | toYaml | nindent 10 }}
+        {{- end }}
+      {{- end}}  
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- .Values.nodeSelector | toYaml | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- .Values.tolerations | toYaml | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - name: {{ .Values.statefulSet.volume.name }}
+        persistentVolumeClaim:
+          claimName: {{ include "boomi.fullname" . }}-nfs
+      - name: tmpfs
+        emptyDir: {}
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+      serviceAccountName: {{ include "boomi.serviceAccountName" . }}
+      hostNetwork: true
+      containers:
+      - name: {{ .Chart.Name }}
+        image: {{ .Values.statefulSet.template.spec.image }}
+        imagePullPolicy: {{ .Values.statefulSet.template.spec.imagePullpolicy }}
+        ports:
+        - name: {{ .Values.statefulSet.template.spec.portname }}
+          containerPort: {{ .Values.statefulSet.template.spec.containerPort }}
+          protocol: TCP   
+        lifecycle:
+          preStop:
+            exec:
+              command:
+                - sh
+                - /home/boomi/scaledown.sh
+        resources:
+          limits:
+            cpu: {{ .Values.statefulSet.template.spec.resources.limits.cpu }}
+            memory: {{ .Values.statefulSet.template.spec.resources.limits.memory }}
+          requests:
+            cpu: {{ .Values.statefulSet.template.spec.resources.requests.cpu }}
+            memory: {{ .Values.statefulSet.template.spec.resources.requests.memory }}
+        volumeMounts:
+          - mountPath: "/mnt/boomi"
+            name: {{ .Values.statefulSet.volume.name }}
+          - name: tmpfs
+            mountPath: "/run"
+          - name: tmpfs
+            mountPath: "/tmp"
+          - name: cgroup
+            mountPath: /sys/fs/cgroup
+        startupProbe:
+          failureThreshold: 60
+          exec:
+            command:
+              - sh
+              - /home/boomi/probe.sh
+              - startup
+        readinessProbe:
+          periodSeconds: 10
+          initialDelaySeconds: 10
+          exec:
+            command:
+              - sh
+              - /home/boomi/probe.sh
+              - readiness
+        livenessProbe:
+          periodSeconds: 60
+          exec:
+            command:
+              - sh
+              - /home/boomi/probe.sh
+              - liveness
+        env:
+        - name: BOOMI_ATOMNAME
+          value: {{ .Values.statefulSet.template.spec.env.BOOMI_ATOMNAME.name }}
+        - name: ATOM_LOCALHOSTID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: BOOMI_ACCOUNTID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "boomi.fullname" . }}-secret
+              key: account
+        - name: INSTALL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "boomi.fullname" . }}-secret
+              key: token
+        - name: BOOMI_ENVIRONMENTID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "boomi.fullname" . }}-secret
+              key: envId
+        - name: BOOMI_CONTAINERNAME
+          value: {{ .Values.statefulSet.template.spec.env.BOOMI_ATOMNAME.name }}
+        - name: INSTALLATION_DIRECTORY
+          value: "/mnt/boomi"
